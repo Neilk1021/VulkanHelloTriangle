@@ -30,6 +30,9 @@ constexpr bool enableValidationLayers = false;
 constexpr bool enableValidationLayers = true;
 #endif
 
+constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+
+
 class HelloTriangleApplication
 {
   public:
@@ -61,12 +64,13 @@ class HelloTriangleApplication
 	vk::raii::PipelineLayout pipelineLayout = nullptr;
 	vk::raii::Pipeline graphicsPipeline = nullptr;
 	vk::raii::CommandPool commandPool = nullptr;
-	vk::raii::CommandBuffer commandBuffer = nullptr;
+	std::vector<vk::raii::CommandBuffer> commandBuffers;
 
-	vk::raii::Semaphore presentCompleteSemaphore = nullptr;
-	vk::raii::Semaphore renderFinishedSemaphore  = nullptr;
-	vk::raii::Fence     drawFence                = nullptr;
+	std::vector<vk::raii::Semaphore> presentCompleteSemaphores;
+	std::vector<vk::raii::Semaphore> renderFinishedSemaphores;
+	std::vector<vk::raii::Fence> inFlightFences;
 
+	uint32_t frameIndex = 0;
 
 	std::vector<const char *> requiredDeviceExtension = {
 	    vk::KHRSwapchainExtensionName};
@@ -398,15 +402,15 @@ class HelloTriangleApplication
 		vk::CommandBufferAllocateInfo allocInfo {
 			.commandPool = commandPool,
 			.level = vk::CommandBufferLevel::ePrimary,
-			.commandBufferCount = 1
+			.commandBufferCount = MAX_FRAMES_IN_FLIGHT
 		};
 
-		commandBuffer = std::move(vk::raii::CommandBuffers(device, allocInfo).front());
+		commandBuffers = vk::raii::CommandBuffers(device, allocInfo);
 	}
 
 	void recordCommandBuffer(uint32_t imageIndex)
 	{
-		commandBuffer.begin({});
+		commandBuffers[frameIndex].begin({});
 
 		transitionImageLayout(
 			imageIndex,
@@ -439,9 +443,9 @@ class HelloTriangleApplication
 			.pColorAttachments    = &attachmentInfo
 		};
 
-		commandBuffer.beginRendering(renderingInfo);
-		commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *graphicsPipeline);
-		commandBuffer.setViewport(0,
+		commandBuffers[frameIndex].beginRendering(renderingInfo);
+		commandBuffers[frameIndex].bindPipeline(vk::PipelineBindPoint::eGraphics, *graphicsPipeline);
+		commandBuffers[frameIndex].setViewport(0,
 			vk::Viewport(
 				0.0f,
 				0.0f,
@@ -452,9 +456,9 @@ class HelloTriangleApplication
 				)
 			);
 
-		commandBuffer.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
-		commandBuffer.draw(3, 1, 0, 0);
-		commandBuffer.endRendering();
+		commandBuffers[frameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
+		commandBuffers[frameIndex].draw(3, 1, 0, 0);
+		commandBuffers[frameIndex].endRendering();
 
 		transitionImageLayout(
 			imageIndex,
@@ -466,7 +470,7 @@ class HelloTriangleApplication
 			vk::PipelineStageFlagBits2::eBottomOfPipe               // dstStage
 		);
 
-		commandBuffer.end();
+		commandBuffers[frameIndex].end();
 	}
 
 	void transitionImageLayout(
@@ -502,49 +506,55 @@ class HelloTriangleApplication
 			.imageMemoryBarrierCount = 1,
 			.pImageMemoryBarriers    = &barrier
 		};
-		commandBuffer.pipelineBarrier2(dependencyInfo);
+		commandBuffers[frameIndex].pipelineBarrier2(dependencyInfo);
 	}
 
-	void createSyncObjects() {
-		presentCompleteSemaphore = vk::raii::Semaphore(device, vk::SemaphoreCreateInfo());
-		renderFinishedSemaphore  = vk::raii::Semaphore(device, vk::SemaphoreCreateInfo());
-		drawFence                = vk::raii::Fence
-		(
-			device,
-{
-				.flags = vk::FenceCreateFlagBits::eSignaled
-			}
-		);
+	void createSyncObjects()
+	{
+		assert(presentCompleteSemaphores.empty() && renderFinishedSemaphores.empty() && inFlightFences.empty());
+
+		for (size_t i = 0; i < swapChainImages.size(); i++)
+		{
+			renderFinishedSemaphores.emplace_back(device, vk::SemaphoreCreateInfo());
+		}
+
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		{
+			presentCompleteSemaphores.emplace_back(device, vk::SemaphoreCreateInfo());
+			inFlightFences.emplace_back(device, vk::FenceCreateInfo{.flags = vk::FenceCreateFlagBits::eSignaled});
+		}
 	}
 
 	void drawFrame()
 	{
-		auto fenceResult = device.waitForFences(*drawFence, vk::True, UINT64_MAX);
+		auto fenceResult = device.waitForFences(*inFlightFences[frameIndex], vk::True, UINT64_MAX);
 
 		if (fenceResult != vk::Result::eSuccess){
 			throw std::runtime_error("failed to wait for fence!");
 		}
 
-		device.resetFences(*drawFence);
-		auto [result, imageIndex] = swapChain.acquireNextImage(UINT64_MAX, *presentCompleteSemaphore, nullptr);
+		device.resetFences(*inFlightFences[frameIndex]);
+		auto [result, imageIndex] = swapChain.acquireNextImage(UINT64_MAX, *presentCompleteSemaphores[frameIndex], nullptr);
 		recordCommandBuffer(imageIndex);
 
 		vk::PipelineStageFlags waitDestinationStageMask( vk::PipelineStageFlagBits::eColorAttachmentOutput );
 		const vk::SubmitInfo   submitInfo{
 			.waitSemaphoreCount   = 1,
-			.pWaitSemaphores      = &*presentCompleteSemaphore,
+			.pWaitSemaphores      = &*presentCompleteSemaphores[frameIndex],
 			.pWaitDstStageMask    = &waitDestinationStageMask,
 			.commandBufferCount   = 1,
-			.pCommandBuffers      = &*commandBuffer,
+			.pCommandBuffers      = &*commandBuffers[frameIndex],
 			.signalSemaphoreCount = 1,
-			.pSignalSemaphores    = &*renderFinishedSemaphore
+			.pSignalSemaphores    = &*renderFinishedSemaphores[imageIndex]
 		};
 
-		queue.submit(submitInfo, *drawFence);
+		queue.submit(submitInfo, *inFlightFences[frameIndex]);
+
+		frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
 
 		const vk::PresentInfoKHR presentInfoKHR{
 			.waitSemaphoreCount = 1,
-			.pWaitSemaphores    = &*renderFinishedSemaphore,
+			.pWaitSemaphores    = &*renderFinishedSemaphores[imageIndex],
 			.swapchainCount     = 1,
 			.pSwapchains        = &*swapChain,
 			.pImageIndices      = &imageIndex,
