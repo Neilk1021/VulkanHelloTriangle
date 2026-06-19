@@ -1,0 +1,48 @@
+# ==============================================================================
+# CMake Output & Build Directories
+# ==============================================================================
+# Ignore the entire build directory where CMake compiles your files
+build/
+Build/
+out/
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Makefile
+cmake_install.cmake
+install/
+
+# ==============================================================================
+# Vulkan & Graphics Specifics
+# ==============================================================================
+# Ignore compiled SPIR-V binary shaders (keep your raw .vert/.frag text files!)
+*.spv
+*.spirv
+
+# If your project downloads or places heavy assets/textures locally
+assets/textures/large_temporary_files/
+
+# ==============================================================================
+# IDEs & Editor Specifics
+# ==============================================================================
+# Visual Studio
+.vs/
+*.user
+*.sln
+*.vcxproj
+*.filters
+
+# CLion / IntelliJ
+.idea/
+cmake-build-*/
+
+# VS Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+
+# ==============================================================================
+# System / OS Specifics
+# ==============================================================================
+.DS_Store
+Thumbs.db
