@@ -1,6 +1,10 @@
 cmake_minimum_required (VERSION 3.29)
 
 set (TEMPLATE_NAME "Quake")
+set (SHADER_TARGET ${TEMPLATE_NAME}Shader)
+set (SHADERS_DIR "${TEMPLATE_DIR}/shaders")
+set (SHADER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../shaders/shader.slang")
+set (ENTRY_POINTS -entry vertMain -entry fragMain)
 
 project (${TEMPLATE_NAME})
 
@@ -76,7 +80,8 @@ find_program(SLANGC_EXECUTABLE slangc HINTS $ENV{VULKAN_SDK}/bin REQUIRED)
 
 set(TEMPLATE_DIR ${CMAKE_BINARY_DIR}/${TEMPLATE_NAME})
 
-add_executable (${TEMPLATE_NAME} main.cpp)
+add_executable (${TEMPLATE_NAME} main.cpp
+        vertex.hpp)
 set_target_properties (${TEMPLATE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${TEMPLATE_DIR})
 set_target_properties (${TEMPLATE_NAME} PROPERTIES CXX_STANDARD 20)
 target_link_libraries (${TEMPLATE_NAME} Vulkan::cppm glfw)
@@ -103,14 +108,17 @@ set (SHADER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../shaders/shader.slang")
 set (ENTRY_POINTS -entry vertMain -entry fragMain)
 add_custom_command(OUTPUT ${SHADERS_DIR} COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADERS_DIR})
 add_custom_command(
-        OUTPUT  ${SHADERS_DIR}/slang.spv
-        COMMAND ${SLANGC_EXECUTABLE} ${SHADER_SOURCES} -target spirv -profile spirv_1_4 -emit-spirv-directly -fvk-use-entrypoint-name ${ENTRY_POINTS} -o ${TEMPLATE_DIR}/shaders/slang.spv
-        WORKING_DIRECTORY ${SHADERS_DIR}
-        DEPENDS ${SHADERS_DIR} ${SHADER_SOURCES}
+        OUTPUT  "${SHADERS_DIR}/slang.spv"
+        # First, ensure the folder exists
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${SHADERS_DIR}"
+        # Next, compile the shader
+        COMMAND ${SLANGC_EXECUTABLE} ${SHADER_SOURCES} -target spirv -profile spirv_1_4 -emit-spirv-directly -fvk-use-entrypoint-name ${ENTRY_POINTS} -o "${SHADERS_DIR}/slang.spv"
+        WORKING_DIRECTORY "${SHADERS_DIR}"
+        DEPENDS "${SHADER_SOURCES}" # Only depend on the actual source file
         COMMENT "Compiling Slang Shaders"
         VERBATIM
 )
-add_custom_target(${SHADER_TARGET} DEPENDS ${SHADERS_DIR}/slang.spv)
+add_custom_target(${SHADER_TARGET} DEPENDS "${SHADERS_DIR}/slang.spv")
 add_dependencies(${TEMPLATE_NAME} ${SHADER_TARGET})
 
 # Assets

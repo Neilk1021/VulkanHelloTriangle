@@ -8,6 +8,7 @@
 #include <memory>
 #include <stdexcept>
 #include <vector>
+#include "vertex.hpp"
 
 #if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
 #	include <vulkan/vulkan_raii.hpp>
@@ -64,13 +65,23 @@ class HelloTriangleApplication
 	vk::raii::PipelineLayout pipelineLayout = nullptr;
 	vk::raii::Pipeline graphicsPipeline = nullptr;
 	vk::raii::CommandPool commandPool = nullptr;
+	vk::raii::Buffer vertexBuffer = nullptr;
+	vk::raii::DeviceMemory vertexBufferMemory = nullptr;
+
 	std::vector<vk::raii::CommandBuffer> commandBuffers;
 
 	std::vector<vk::raii::Semaphore> presentCompleteSemaphores;
 	std::vector<vk::raii::Semaphore> renderFinishedSemaphores;
 	std::vector<vk::raii::Fence> inFlightFences;
 
+	const std::vector<Vertex> vertices = {
+		{{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+		{{0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}},
+		{{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+	};
+
 	uint32_t frameIndex = 0;
+	bool framebufferResized = false;
 
 	std::vector<const char *> requiredDeviceExtension = {
 	    vk::KHRSwapchainExtensionName};
@@ -83,6 +94,14 @@ class HelloTriangleApplication
 		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
 		window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
+		glfwSetWindowUserPointer(window, this);
+		glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
+	}
+
+	static void framebufferResizeCallback(GLFWwindow* window, int width, int height)
+	{
+		auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
+		app->framebufferResized = true;
 	}
 
 	void initVulkan()
@@ -96,6 +115,7 @@ class HelloTriangleApplication
 		createImageViews();
 		createGraphicsPipeline();
 		createCommandPool();
+		createVertexBuffer();
 		createCommandBuffer();
 		createSyncObjects();
 	}
@@ -113,8 +133,8 @@ class HelloTriangleApplication
 
 	void cleanup()
 	{
+		cleanupSwapChain();
 		glfwDestroyWindow(window);
-
 		glfwTerminate();
 	}
 
@@ -286,6 +306,27 @@ class HelloTriangleApplication
 		queue  = vk::raii::Queue(device, graphicsQueueFamilyIndex, 0);
 	}
 
+	void recreateSwapChain()
+	{
+		int width = 0, height = 0;
+		glfwGetFramebufferSize(window, &width, &height);
+		while (width == 0 || height == 0) {
+			glfwGetFramebufferSize(window, &width, &height);
+			glfwWaitEvents();
+		}
+
+		device.waitIdle();
+		cleanupSwapChain();
+
+		createSwapChain();
+		createImageViews();
+	}
+
+	void cleanupSwapChain() {
+		swapChainImageViews.clear();
+		swapChain = nullptr;
+	}
+
 	void createSwapChain()
 	{
 		vk::SurfaceCapabilitiesKHR surfaceCapabilities = physicalDevice.getSurfaceCapabilitiesKHR(*surface);
@@ -338,7 +379,15 @@ class HelloTriangleApplication
 		vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
 
 
-		vk::PipelineVertexInputStateCreateInfo vertexInputInfo;
+		auto bindingDescription = Vertex::getBindingDescription();
+		auto attributeDescriptions = Vertex::getAttributeDescriptions();
+		vk::PipelineVertexInputStateCreateInfo vertexInputInfo {
+			.vertexBindingDescriptionCount = 1,
+			.pVertexBindingDescriptions = &bindingDescription,
+			.vertexAttributeDescriptionCount = attributeDescriptions.size(),
+			.pVertexAttributeDescriptions = attributeDescriptions.data()
+		};
+
 		vk::PipelineInputAssemblyStateCreateInfo inputAssembly{.topology = vk::PrimitiveTopology::eTriangleList};
 
 		std::vector<vk::DynamicState> dynamicStates = {vk::DynamicState::eViewport, vk::DynamicState::eScissor};
@@ -408,6 +457,45 @@ class HelloTriangleApplication
 		commandBuffers = vk::raii::CommandBuffers(device, allocInfo);
 	}
 
+	void createVertexBuffer() {
+		vk::BufferCreateInfo bufferInfo{
+			.size        = sizeof(vertices[0]) * vertices.size(),
+			.usage       = vk::BufferUsageFlagBits::eVertexBuffer,
+			.sharingMode = vk::SharingMode::eExclusive
+		};
+		vertexBuffer = vk::raii::Buffer(device, bufferInfo);
+		vk::MemoryRequirements memRequirements = vertexBuffer.getMemoryRequirements();
+		vk::MemoryAllocateInfo memoryAllocateInfo{
+			.allocationSize = memRequirements.size,
+			.memoryTypeIndex = findMemoryType(
+					memRequirements.memoryTypeBits,
+					vk::MemoryPropertyFlagBits::eHostVisible |
+					vk::MemoryPropertyFlagBits::eHostCoherent
+				)
+		};
+
+		vertexBufferMemory = vk::raii::DeviceMemory(device, memoryAllocateInfo);
+		vertexBuffer.bindMemory( *vertexBufferMemory, 0 );
+
+		void* data = vertexBufferMemory.mapMemory(0, bufferInfo.size);
+		memcpy(data, vertices.data(), bufferInfo.size);
+		vertexBufferMemory.unmapMemory();
+	}
+
+	uint32_t findMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties) {
+		vk::PhysicalDeviceMemoryProperties memProperties = physicalDevice.getMemoryProperties();
+
+		for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++)
+		{
+			if (typeFilter & (1 << i) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties)
+			{
+				return i;
+			}
+		}
+
+		throw std::runtime_error("failed to find suitable memory type!");
+	}
+
 	void recordCommandBuffer(uint32_t imageIndex)
 	{
 		commandBuffers[frameIndex].begin({});
@@ -457,7 +545,11 @@ class HelloTriangleApplication
 			);
 
 		commandBuffers[frameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
-		commandBuffers[frameIndex].draw(3, 1, 0, 0);
+
+		commandBuffers[frameIndex].bindPipeline(vk::PipelineBindPoint::eGraphics, *graphicsPipeline);
+		commandBuffers[frameIndex].bindVertexBuffers(0, *vertexBuffer, {0});
+		commandBuffers[frameIndex].draw(static_cast<uint32_t>(vertices.size()), 1, 0, 0);
+
 		commandBuffers[frameIndex].endRendering();
 
 		transitionImageLayout(
@@ -469,6 +561,8 @@ class HelloTriangleApplication
 			vk::PipelineStageFlagBits2::eColorAttachmentOutput,     // srcStage
 			vk::PipelineStageFlagBits2::eBottomOfPipe               // dstStage
 		);
+
+
 
 		commandBuffers[frameIndex].end();
 	}
@@ -533,8 +627,21 @@ class HelloTriangleApplication
 			throw std::runtime_error("failed to wait for fence!");
 		}
 
-		device.resetFences(*inFlightFences[frameIndex]);
 		auto [result, imageIndex] = swapChain.acquireNextImage(UINT64_MAX, *presentCompleteSemaphores[frameIndex], nullptr);
+
+		if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR || framebufferResized) {
+			framebufferResized = false;
+			recreateSwapChain();
+			return;
+		}
+
+		if (result != vk::Result::eSuccess){
+			assert(result == vk::Result::eTimeout || result == vk::Result::eNotReady);
+			throw std::runtime_error("failed to acquire swap chain image!");
+		}
+
+		device.resetFences(*inFlightFences[frameIndex]);
+
 		recordCommandBuffer(imageIndex);
 
 		vk::PipelineStageFlags waitDestinationStageMask( vk::PipelineStageFlagBits::eColorAttachmentOutput );
@@ -562,6 +669,12 @@ class HelloTriangleApplication
 		};
 
 		result = queue.presentKHR(presentInfoKHR);
+		if ((result == vk::Result::eSuboptimalKHR) || (result == vk::Result::eErrorOutOfDateKHR)){
+			recreateSwapChain();
+		}
+		else{
+			assert(result == vk::Result::eSuccess);
+		}
 
 
 	}
