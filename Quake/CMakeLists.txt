@@ -81,7 +81,8 @@ find_program(SLANGC_EXECUTABLE slangc HINTS $ENV{VULKAN_SDK}/bin REQUIRED)
 set(TEMPLATE_DIR ${CMAKE_BINARY_DIR}/${TEMPLATE_NAME})
 
 add_executable (${TEMPLATE_NAME} main.cpp
-        vertex.hpp)
+        vertex.hpp
+        uniformBuffer.hpp)
 set_target_properties (${TEMPLATE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${TEMPLATE_DIR})
 set_target_properties (${TEMPLATE_NAME} PROPERTIES CXX_STANDARD 20)
 target_link_libraries (${TEMPLATE_NAME} Vulkan::cppm glfw)
@@ -125,3 +126,4 @@ add_dependencies(${TEMPLATE_NAME} ${SHADER_TARGET})
 set (ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../assets")
 file (COPY ${ASSET_DIR}/viking_room.obj DESTINATION ${TEMPLATE_DIR}/models)
 file (COPY ${ASSET_DIR}/viking_room.png DESTINATION ${TEMPLATE_DIR}/textures)
+file (COPY ${ASSET_DIR}/texture.jpg DESTINATION ${TEMPLATE_DIR}/textures)
