@@ -3,11 +3,11 @@ struct UniformBuffer {
     float4x4 view;
     float4x4 proj;
 };
-ConstantBuffer<UniformBuffer> ubo;
-Sampler2D texture;
+[[vk::binding(0,0)]] ConstantBuffer<UniformBuffer> ubo;
+[[vk::binding(1,0)]] Sampler2D texture;
 
 struct VertexInput {
-    float2 inPosition;
+    float3 inPosition;
     float3 inColor;
     float2 inTexCoord;
 };
@@ -21,7 +21,7 @@ struct VertexOutput {
 [shader("vertex")]
 VertexOutput vertMain(VertexInput input) {
     VertexOutput output;
-    output.sv_position = mul(ubo.proj, mul(ubo.view, mul(ubo.model, float4(input.inPosition,0.0,1.0))));
+    output.sv_position = mul(ubo.proj, mul(ubo.view, mul(ubo.model, float4(input.inPosition,1.0))));
     output.color = input.inColor;
     output.fragTexCoord = input.inTexCoord;
     return output;
